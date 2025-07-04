@@ -1,0 +1,26 @@
+[workspace]
+members = ["exchange", "prover/program", "prover/host", "prover/share"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1.42.0", features = ["full"] }
+anyhow = "1.0"
+lazy_static = "1.5.0"
+rand = "0.9.0"
+log = "0.4.26"
+env_logger = "0.11.7"
+tower-http = { version = "0.5", features = ["cors"] }
+futures = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sled = "0.34.7"
+
+# for prover
+sp1-zkvm = "4.0.0"
+sp1-sdk = "4.0.0"
+tiny-keccak = { version = "2.0", features = ["sha3"] }

@@ -1,0 +1,7 @@
+use serde::{Serialize, Deserialize};
+
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExchangeTrace{
+    pub id: String,
+}
