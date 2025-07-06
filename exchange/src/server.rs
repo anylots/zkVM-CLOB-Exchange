@@ -1,16 +1,12 @@
-use std::net::SocketAddr;
-use axum::{
-    Router, 
-    routing::post,
-    extract::Json,
-    response::Json as ResponseJson,
-    http::StatusCode,
-};
-use tower_http::cors::{Any, CorsLayer};
-use serde::{Deserialize, Serialize};
+use crate::mempool::MEMPOOL;
 use crate::order::Order;
-use crate::mempool::EXCHANGE;
-use crate::matching::Trade;
+use crate::{matching::Trade, state::STATE};
+use axum::{
+    Router, extract::Json, http::StatusCode, response::Json as ResponseJson, routing::post,
+};
+use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Deserialize)]
 pub struct DepositRequest {
@@ -67,8 +63,7 @@ pub struct ApiResponse<T> {
 
 #[derive(Serialize)]
 pub struct PlaceOrderResponse {
-    pub order: Order,
-    pub trades: Vec<Trade>,
+    pub order_id: String,
 }
 
 #[derive(Serialize)]
@@ -102,7 +97,7 @@ impl<T> ApiResponse<T> {
 
 pub async fn start() {
     let app = create_router();
-    
+
     // Create CORS middleware
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -131,61 +126,62 @@ fn create_router() -> Router {
 }
 
 async fn handle_deposit(
-    Json(request): Json<DepositRequest>
+    Json(request): Json<DepositRequest>,
 ) -> Result<ResponseJson<ApiResponse<()>>, StatusCode> {
-    log::info!("Deposit request: user_id={}, token={}, amount={}", 
-               request.user_id, request.token, request.amount);
-    
-    let mut exchange = EXCHANGE.lock().unwrap();
-    
-    match exchange.deposit(request.user_id.clone(), request.token.clone(), request.amount) {
-        Ok(_) => {
-            log::info!("Deposit successful: user_id={}, token={}, amount={}", 
-                      request.user_id, request.token, request.amount);
-            Ok(ResponseJson(ApiResponse::success(())))
-        },
-        Err(e) => {
-            log::error!("Deposit failed: user_id={}, token={}, amount={}, error={}", 
-                       request.user_id, request.token, request.amount, e);
-            Ok(ResponseJson(ApiResponse::error(e)))
-        },
-    }
+    log::info!(
+        "Deposit request: user_id={}, token={}, amount={}",
+        request.user_id,
+        request.token,
+        request.amount
+    );
+
+    let mut state = STATE.write().await;
+
+    state.add_user_balance(
+        request.user_id.clone(),
+        request.token.clone(),
+        request.amount,
+    );
+    Ok(ResponseJson(ApiResponse::success(())))
 }
 
 async fn handle_withdraw(
-    Json(request): Json<WithdrawRequest>
+    Json(request): Json<WithdrawRequest>,
 ) -> Result<ResponseJson<ApiResponse<()>>, StatusCode> {
-    log::info!("Withdraw request: user_id={}, token={}, amount={}", 
-               request.user_id, request.token, request.amount);
-    
-    let mut exchange = EXCHANGE.lock().unwrap();
-    
-    match exchange.withdraw(request.user_id.clone(), request.token.clone(), request.amount) {
-        Ok(_) => {
-            log::info!("Withdraw successful: user_id={}, token={}, amount={}", 
-                      request.user_id, request.token, request.amount);
-            Ok(ResponseJson(ApiResponse::success(())))
-        },
-        Err(e) => {
-            log::error!("Withdraw failed: user_id={}, token={}, amount={}, error={}", 
-                       request.user_id, request.token, request.amount, e);
-            Ok(ResponseJson(ApiResponse::error(e)))
-        },
-    }
+    log::info!(
+        "Withdraw request: user_id={}, token={}, amount={}",
+        request.user_id,
+        request.token,
+        request.amount
+    );
+
+    let mut state = STATE.write().await;
+
+    state.sub_user_balance(
+        request.user_id.clone(),
+        request.token.clone(),
+        request.amount,
+    );
+    Ok(ResponseJson(ApiResponse::success(())))
 }
 
 async fn handle_place_order(
-    Json(request): Json<PlaceOrderRequest>
+    Json(request): Json<PlaceOrderRequest>,
 ) -> Result<ResponseJson<ApiResponse<PlaceOrderResponse>>, StatusCode> {
-    log::info!("Received order request: user_id={}, pair_id={}, amount={}, price={}, side={}", 
-               request.user_id, request.pair_id, request.amount, request.price, 
-               if request.side { "buy" } else { "sell" });
-    
-    let mut exchange = EXCHANGE.lock().unwrap();
-    
+    log::info!(
+        "Received order request: user_id={}, pair_id={}, amount={}, price={}, side={}",
+        request.user_id,
+        request.pair_id,
+        request.amount,
+        request.price,
+        if request.side { "buy" } else { "sell" }
+    );
+
+    let mut mempool = MEMPOOL.write().await;
+
     // Generate unique order ID
     let order_id = format!("order_{}", rand::random::<u64>());
-    
+
     let order = Order::new(
         order_id.clone(),
         request.user_id,
@@ -194,87 +190,102 @@ async fn handle_place_order(
         request.price,
         request.side,
     );
-    
-    log::info!("Created order: id={}, user_id={}, pair_id={}", 
-               order_id, order.user_id, order.pair_id);
-    
-    match exchange.place_order(order.clone()) {
-        Ok(trades) => {
-            log::info!("Order processed successfully: id={}, trades_count={}", 
-                       order_id, trades.len());
-            let response = PlaceOrderResponse { order, trades };
+
+    log::info!(
+        "Created order: id={}, user_id={}, pair_id={}",
+        order_id,
+        order.user_id,
+        order.pair_id
+    );
+
+    match mempool.place_order(order.clone()).await {
+        Ok(order_id) => {
+            log::info!("Order processed successfully: order_id = {}", order_id,);
+            let response = PlaceOrderResponse { order_id };
             Ok(ResponseJson(ApiResponse::success(response)))
-        },
+        }
         Err(e) => {
             log::error!("Failed to process order: id={}, error={}", order_id, e);
             Ok(ResponseJson(ApiResponse::error(e)))
-        },
+        }
     }
 }
 
 async fn handle_cancel_order(
-    Json(request): Json<CancelOrderRequest>
+    Json(request): Json<CancelOrderRequest>,
 ) -> Result<ResponseJson<ApiResponse<Order>>, StatusCode> {
-    log::info!("Cancel order request: pair_id={}, order_id={}", 
-               request.pair_id, request.order_id);
-    
-    let mut exchange = EXCHANGE.lock().unwrap();
-    
-    match exchange.cancel_order(&request.pair_id, &request.order_id) {
+    log::info!(
+        "Cancel order request: pair_id={}, order_id={}",
+        request.pair_id,
+        request.order_id
+    );
+
+    let mut mempool = MEMPOOL.write().await;
+    match mempool.cancel_order(&request.pair_id, &request.order_id) {
         Ok(cancelled_order) => {
-            log::info!("Order cancelled successfully: pair_id={}, order_id={}", 
-                      request.pair_id, request.order_id);
+            log::info!(
+                "Order cancelled successfully: pair_id={}, order_id={}",
+                request.pair_id,
+                request.order_id
+            );
             Ok(ResponseJson(ApiResponse::success(cancelled_order)))
-        },
+        }
         Err(e) => {
-            log::error!("Failed to cancel order: pair_id={}, order_id={}, error={}", 
-                       request.pair_id, request.order_id, e);
+            log::error!(
+                "Failed to cancel order: pair_id={}, order_id={}, error={}",
+                request.pair_id,
+                request.order_id,
+                e
+            );
             Ok(ResponseJson(ApiResponse::error(e)))
-        },
+        }
     }
 }
 
 async fn handle_get_balance(
-    Json(request): Json<GetBalanceRequest>
+    Json(request): Json<GetBalanceRequest>,
 ) -> Result<ResponseJson<ApiResponse<BalanceResponse>>, StatusCode> {
-    let exchange = EXCHANGE.lock().unwrap();
-    
-    let balance = exchange.get_balance(&request.user_id, &request.token);
+    let state = STATE.read().await;
+    let balance = state.get_user_balance(&request.user_id, &request.token);
     let response = BalanceResponse { balance };
-    
+
     Ok(ResponseJson(ApiResponse::success(response)))
 }
 
 async fn handle_get_order(
-    Json(request): Json<GetOrderRequest>
+    Json(request): Json<GetOrderRequest>,
 ) -> Result<ResponseJson<ApiResponse<Order>>, StatusCode> {
-    let exchange = EXCHANGE.lock().unwrap();
-    
-    match exchange.get_order(&request.pair_id, &request.order_id) {
+    let mempool = MEMPOOL.read().await;
+
+    match mempool.get_order(&request.pair_id, &request.order_id) {
         Some(order) => Ok(ResponseJson(ApiResponse::success(order.clone()))),
-        None => Ok(ResponseJson(ApiResponse::error("Order not found".to_string()))),
+        None => Ok(ResponseJson(ApiResponse::error(
+            "Order not found".to_string(),
+        ))),
     }
 }
 
 async fn handle_get_orderbook(
-    Json(request): Json<GetOrderBookRequest>
+    Json(request): Json<GetOrderBookRequest>,
 ) -> Result<ResponseJson<ApiResponse<OrderBookResponse>>, StatusCode> {
-    let exchange = EXCHANGE.lock().unwrap();
-    
-    match exchange.get_order_book(&request.pair_id) {
+    let mempool = MEMPOOL.read().await;
+
+    match mempool.get_order_book(&request.pair_id) {
         Some(order_book) => {
             let response = OrderBookResponse {
                 best_bid: order_book.get_best_bid(),
                 best_ask: order_book.get_best_ask(),
             };
             Ok(ResponseJson(ApiResponse::success(response)))
-        },
-        None => Ok(ResponseJson(ApiResponse::error("Trading pair not found".to_string()))),
+        }
+        None => Ok(ResponseJson(ApiResponse::error(
+            "Trading pair not found".to_string(),
+        ))),
     }
 }
 
 async fn handle_get_trades() -> Result<ResponseJson<ApiResponse<Vec<Trade>>>, StatusCode> {
-    let exchange = EXCHANGE.lock().unwrap();
-    let trades = exchange.get_trades().clone();
+    let mempool = MEMPOOL.read().await;
+    let trades = mempool.get_trades().clone();
     Ok(ResponseJson(ApiResponse::success(trades)))
 }

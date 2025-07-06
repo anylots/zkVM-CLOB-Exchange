@@ -1,6 +1,7 @@
+use crate::matched_traces::{MATCHED_TRACES, MatchedTrace};
 use crate::order::{Order, OrderStatus};
-use std::collections::{BinaryHeap, HashMap};
 use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap};
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Trade {
@@ -34,7 +35,7 @@ impl Ord for BuyOrder {
         // Higher price first, then earlier time (FIFO)
         match self.0.price.cmp(&other.0.price) {
             Ordering::Equal => other.0.created_at.cmp(&self.0.created_at), // Earlier time first
-            other => other, // Higher price first
+            other => other,                                                // Higher price first
         }
     }
 }
@@ -62,7 +63,7 @@ impl Ord for SellOrder {
         // Lower price first, then earlier time (FIFO)
         match other.0.price.cmp(&self.0.price) {
             Ordering::Equal => other.0.created_at.cmp(&self.0.created_at), // Earlier time first
-            other => other, // Lower price first
+            other => other,                                                // Lower price first
         }
     }
 }
@@ -82,25 +83,26 @@ impl OrderBook {
         }
     }
 
-    pub fn add_order(&mut self, mut order: Order) -> Vec<Trade> {
+    pub async fn add_order(&mut self, mut order: Order) {
         let order_id = order.id.clone();
         let order_side = order.side;
         let order_amount = order.amount;
         let order_price = order.price;
-        
-        log::info!("Adding order to order book: id={}, side={}, amount={}, price={}", 
-                   order_id, if order_side { "buy" } else { "sell" }, order_amount, order_price);
-        
-        let mut trades = Vec::new();
+
+        log::info!(
+            "Adding order to order book: id={}, side={}, amount={}, price={}",
+            order_id,
+            if order_side { "buy" } else { "sell" },
+            order_amount,
+            order_price
+        );
 
         if order.side {
             // Buy order - match against sell orders
             log::debug!("Matching buy order {} against sell orders", order_id);
-            trades.extend(self.match_buy_order(&mut order));
+            self.match_buy_order(&mut order).await;
             let remaining = order.remaining_amount();
             if remaining > 0 {
-                log::info!("Buy order {} partially filled or unfilled, adding to order book. Remaining: {}", 
-                          order_id, remaining);
                 self.order_map.insert(order.id.clone(), order.clone());
                 self.buy_orders.push(BuyOrder(order));
             } else {
@@ -109,27 +111,21 @@ impl OrderBook {
         } else {
             // Sell order - match against buy orders
             log::debug!("Matching sell order {} against buy orders", order_id);
-            trades.extend(self.match_sell_order(&mut order));
+            self.match_sell_order(&mut order).await;
             let remaining = order.remaining_amount();
             if remaining > 0 {
-                log::info!("Sell order {} partially filled or unfilled, adding to order book. Remaining: {}", 
-                          order_id, remaining);
                 self.order_map.insert(order.id.clone(), order.clone());
                 self.sell_orders.push(SellOrder(order));
             } else {
                 log::info!("Sell order {} fully filled", order_id);
             }
         }
-
-        log::info!("Order book matching completed for order {}: {} trades generated", 
-                   order_id, trades.len());
-        
-        trades
     }
 
-    fn match_buy_order(&mut self, buy_order: &mut Order) -> Vec<Trade> {
-        let mut trades = Vec::new();
+    async fn match_buy_order(&mut self, buy_order: &mut Order) {
         let mut updated_sells = Vec::new();
+
+        let mut traces = MATCHED_TRACES.write().await;
 
         while let Some(SellOrder(mut sell_order)) = self.sell_orders.pop() {
             if sell_order.price > buy_order.price {
@@ -138,19 +134,15 @@ impl OrderBook {
                 break;
             }
 
-            let trade_quantity = std::cmp::min(buy_order.remaining_amount(), sell_order.remaining_amount());
+            let trade_quantity =
+                std::cmp::min(buy_order.remaining_amount(), sell_order.remaining_amount());
             let trade_price = sell_order.price; // Price-time priority: use maker's price
 
-            // Create trade
-            trades.push(Trade {
-                buy_order_id: buy_order.id.clone(),
-                sell_order_id: sell_order.id.clone(),
-                price: trade_price,
-                quantity: trade_quantity,
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
+            // MatchedTrace
+            traces.push(MatchedTrace {
+                buy_order: buy_order.clone(),
+                sell_order: sell_order.clone(),
+                matched_amount: trade_quantity,
             });
 
             // Update orders
@@ -158,7 +150,8 @@ impl OrderBook {
             sell_order.fill(trade_quantity);
 
             // Update order in map
-            self.order_map.insert(sell_order.id.clone(), sell_order.clone());
+            self.order_map
+                .insert(sell_order.id.clone(), sell_order.clone());
 
             if sell_order.remaining_amount() > 0 {
                 updated_sells.push(SellOrder(sell_order));
@@ -173,13 +166,12 @@ impl OrderBook {
         for sell in updated_sells {
             self.sell_orders.push(sell);
         }
-
-        trades
     }
 
-    fn match_sell_order(&mut self, sell_order: &mut Order) -> Vec<Trade> {
-        let mut trades = Vec::new();
+    async fn match_sell_order(&mut self, sell_order: &mut Order) {
         let mut updated_buys = Vec::new();
+
+        let mut traces = MATCHED_TRACES.write().await;
 
         while let Some(BuyOrder(mut buy_order)) = self.buy_orders.pop() {
             if buy_order.price < sell_order.price {
@@ -188,19 +180,14 @@ impl OrderBook {
                 break;
             }
 
-            let trade_quantity = std::cmp::min(sell_order.remaining_amount(), buy_order.remaining_amount());
-            let trade_price = buy_order.price; // Price-time priority: use maker's price
+            let trade_quantity =
+                std::cmp::min(sell_order.remaining_amount(), buy_order.remaining_amount());
 
-            // Create trade
-            trades.push(Trade {
-                buy_order_id: buy_order.id.clone(),
-                sell_order_id: sell_order.id.clone(),
-                price: trade_price,
-                quantity: trade_quantity,
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
+            // MatchedTrace
+            traces.push(MatchedTrace {
+                buy_order: buy_order.clone(),
+                sell_order: sell_order.clone(),
+                matched_amount: trade_quantity,
             });
 
             // Update orders
@@ -208,7 +195,8 @@ impl OrderBook {
             buy_order.fill(trade_quantity);
 
             // Update order in map
-            self.order_map.insert(buy_order.id.clone(), buy_order.clone());
+            self.order_map
+                .insert(buy_order.id.clone(), buy_order.clone());
 
             if buy_order.remaining_amount() > 0 {
                 updated_buys.push(BuyOrder(buy_order));
@@ -223,30 +211,36 @@ impl OrderBook {
         for buy in updated_buys {
             self.buy_orders.push(buy);
         }
-
-        trades
     }
 
     pub fn cancel_order(&mut self, order_id: &str) -> Option<Order> {
         log::info!("Attempting to cancel order: {}", order_id);
-        
+
         if let Some(mut order) = self.order_map.remove(order_id) {
-            log::info!("Order {} found, cancelling. Side: {}, remaining: {}", 
-                      order_id, if order.side { "buy" } else { "sell" }, order.remaining_amount());
-            
+            log::info!(
+                "Order {} found, cancelling. Side: {}, remaining: {}",
+                order_id,
+                if order.side { "buy" } else { "sell" },
+                order.remaining_amount()
+            );
+
             order.set_status(OrderStatus::Cancelled);
-            
+
             // Remove from heaps (this is inefficient but simple for a minimal implementation)
             if order.side {
-                self.buy_orders = self.buy_orders.drain()
+                self.buy_orders = self
+                    .buy_orders
+                    .drain()
                     .filter(|BuyOrder(o)| o.id != order_id)
                     .collect();
             } else {
-                self.sell_orders = self.sell_orders.drain()
+                self.sell_orders = self
+                    .sell_orders
+                    .drain()
                     .filter(|SellOrder(o)| o.id != order_id)
                     .collect();
             }
-            
+
             log::info!("Order {} successfully cancelled", order_id);
             Some(order)
         } else {

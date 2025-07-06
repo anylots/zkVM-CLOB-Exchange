@@ -17,3 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 sled.workspace = true
 tiny-keccak.workspace = true
+
+[[example]]
+name = "block_builder_example"
+path = "examples/block_builder_example.rs"

@@ -1,0 +1,181 @@
+use anyhow::Result;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
+use tokio::time::sleep;
+
+use crate::block::block::Block;
+use crate::matched_traces::{MATCHED_TRACES, MatchedTrace};
+
+static MAX_TXN_SIZE: u64 = 100;
+static BLOCK_TIME_INTERVAL: Duration = Duration::from_millis(200);
+
+#[derive(Clone, Debug)]
+pub struct BlockBuilder {
+    pub db: sled::Db,
+    pub current_block_num: Arc<RwLock<u128>>,
+    pub last_block_time: Arc<RwLock<Instant>>,
+}
+
+impl BlockBuilder {
+    pub fn new(db_path: &str) -> Result<Self> {
+        let db = sled::open(db_path)?;
+
+        // Initialize block number from database or start from 0
+        let current_block_num = match db.get("latest_block_num")? {
+            Some(bytes) => {
+                let num_bytes: [u8; 16] = bytes
+                    .as_ref()
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("Invalid block number format"))?;
+                u128::from_be_bytes(num_bytes)
+            }
+            None => 0,
+        };
+
+        Ok(BlockBuilder {
+            db,
+            current_block_num: Arc::new(RwLock::new(current_block_num)),
+            last_block_time: Arc::new(RwLock::new(Instant::now())),
+        })
+    }
+
+    /// Async method to continuously monitor MATCHED_TRACES and generate blocks
+    pub async fn start_block_generation(&self) -> Result<()> {
+        let mut pending_traces = Vec::new();
+
+        loop {
+            // Read current matched traces
+            let traces = {
+                let mut traces_lock = MATCHED_TRACES.write().await;
+                let current_traces = traces_lock.clone();
+                traces_lock.clear(); // Clear processed traces
+                current_traces
+            };
+
+            // Add new traces to pending
+            pending_traces.extend(traces);
+
+            let should_generate_block = {
+                let last_time = *self.last_block_time.read().await;
+                let time_elapsed = last_time.elapsed() >= BLOCK_TIME_INTERVAL;
+                let txn_count_reached = pending_traces.len() as u64 >= MAX_TXN_SIZE;
+
+                (time_elapsed || txn_count_reached) && !pending_traces.is_empty()
+            };
+
+            if should_generate_block {
+                // Generate and save block
+                let block = self.create_block(pending_traces.clone()).await?;
+                self.save_block(&block).await?;
+
+                log::info!(
+                    "Generated block #{} with {} transactions",
+                    block.block_num,
+                    block.txns.len()
+                );
+
+                // Clear pending traces and update last block time
+                pending_traces.clear();
+                *self.last_block_time.write().await = Instant::now();
+            }
+
+            // Sleep for a short interval before checking again
+            sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    /// Create a new block with the given transactions
+    async fn create_block(&self, txns: Vec<MatchedTrace>) -> Result<Block> {
+        let mut block_num_lock = self.current_block_num.write().await;
+        *block_num_lock += 1;
+        let block_num = *block_num_lock;
+
+        // Calculate state root (simplified - you may want to implement proper state root calculation)
+        let state_root = self.calculate_state_root(&txns);
+
+        Ok(Block {
+            block_num,
+            txns,
+            state_root: Some(state_root),
+        })
+    }
+
+    /// Save block to local storage using sled
+    async fn save_block(&self, block: &Block) -> Result<()> {
+        // Serialize block
+        let block_data = serde_json::to_vec(block)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize block: {}", e))?;
+
+        // Save block with key "block_{block_num}"
+        let block_key = format!("block_{}", block.block_num);
+        self.db.insert(block_key.as_bytes(), block_data)?;
+
+        // Update latest block number
+        let block_num_bytes = block.block_num.to_be_bytes();
+        self.db.insert("latest_block_num", &block_num_bytes[..])?;
+
+        // Flush to ensure data is persisted
+        self.db.flush()?;
+
+        Ok(())
+    }
+
+    /// Calculate state root for the block (simplified implementation)
+    fn calculate_state_root(&self, txns: &[MatchedTrace]) -> [u8; 32] {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+
+        // Hash all transactions in the block
+        for txn in txns {
+            if let Ok(txn_data) = serde_json::to_vec(txn) {
+                txn_data.hash(&mut hasher);
+            }
+        }
+
+        let hash_result = hasher.finish();
+        let mut output = [0u8; 32];
+
+        // Convert u64 hash to [u8; 32] by repeating the pattern
+        let hash_bytes = hash_result.to_be_bytes();
+        for i in 0..32 {
+            output[i] = hash_bytes[i % 8];
+        }
+
+        output
+    }
+
+    /// Get a block by block number
+    pub async fn get_block(&self, block_num: u128) -> Result<Option<Block>> {
+        let block_key = format!("block_{}", block_num);
+
+        match self.db.get(block_key.as_bytes())? {
+            Some(block_data) => {
+                let block: Block = serde_json::from_slice(&block_data)
+                    .map_err(|e| anyhow::anyhow!("Failed to deserialize block: {}", e))?;
+                Ok(Some(block))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Get the latest block number
+    pub async fn get_latest_block_num(&self) -> u128 {
+        *self.current_block_num.read().await
+    }
+
+    /// Get all blocks in a range
+    pub async fn get_blocks_range(&self, start: u128, end: u128) -> Result<Vec<Block>> {
+        let mut blocks = Vec::new();
+
+        for block_num in start..=end {
+            if let Some(block) = self.get_block(block_num).await? {
+                blocks.push(block);
+            }
+        }
+
+        Ok(blocks)
+    }
+}
