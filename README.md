@@ -40,9 +40,11 @@ The latest advancements in the performance of zk proof systems (as well as poten
 
                                 DATA FLOW 
 
-    Orders ──▶ Matching ──▶ Traces ──▶ Blocks ──▶ ZK Proof ──▶ Settlement
+    Buy or Sell Orders ──▶ Matching ──▶ Traces ──▶ Blocks ──▶ ZK Proof ──▶ Settlement
+    Cancel Orders ──▶ Do not Matching ──▶ DA
 
 ═══════════════════════════════════════════════════════════════════════════════
+```
 
 ## Overview
 

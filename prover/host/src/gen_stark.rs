@@ -1,5 +1,6 @@
 use anyhow::anyhow;
-use share::{Block, MatchedTrace, State, ZkVMInput};
+use common::{block::Block, state::State, traces::MatchedTrace};
+use share::ZkVMInput;
 use sp1_sdk::{HashableKey, ProverClient, SP1Stdin};
 use std::time::Instant;
 
@@ -9,9 +10,6 @@ pub const BATCH_VERIFIER_ELF: &[u8] =
 const MAX_PROVE_BLOCKS: usize = 4096;
 
 pub fn prove(state: State, blocks: Vec<Block>) -> Result<Option<Vec<u8>>, anyhow::Error> {
-    // Setup the logger.
-    // sp1_sdk::utils::setup_logger();
-
     if blocks.len() > MAX_PROVE_BLOCKS {
         return Err(anyhow!(format!(
             "check block_tracs, blocks len = {:?} exceeds MAX_PROVE_BLOCKS = {:?}",
@@ -27,7 +25,7 @@ pub fn prove(state: State, blocks: Vec<Block>) -> Result<Option<Vec<u8>>, anyhow
     stdin.write(&serde_json::to_string(&input).unwrap());
     let client = ProverClient::from_env();
 
-    let (mut public_values, execution_report) = client
+    let (mut _public_values, execution_report) = client
         .execute(BATCH_VERIFIER_ELF, &stdin.clone())
         .run()
         .map_err(|e| anyhow!(format!("sp1-vm execution err: {:?}", e)))?;
