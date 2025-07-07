@@ -1,5 +1,6 @@
-use crate::matched_traces::{MATCHED_TRACES, MatchedTrace};
-use crate::order::{Order, OrderStatus};
+use crate::MATCHED_TRACES;
+use common::order::{Order, OrderStatus};
+use common::traces::MatchedTrace;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 

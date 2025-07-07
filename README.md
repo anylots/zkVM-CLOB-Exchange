@@ -6,6 +6,44 @@ A high-performance Central Limit Order Book (CLOB) exchange powered by Zero-Know
 
 The latest advancements in the performance of zk proof systems (as well as potential future improvements) are making the Rust → RISC-V → ZKVM technology stack a new paradigm for high-performance applications. This enables applications to surpass the speed and security of high-performance blockchains（eg: hyperliquid、solana） while maintaining excellent development efficiency.
 
+# ZKVM CLOB Exchange Architecture
+
+```
+        ╔══════════════════════════════════════════════════════════╗
+        ║                 ZKVM CLOB EXCHANGE                       ║
+        ║              High-Performance Trading                    ║
+        ╚══════════════════════════════════════════════════════════╝
+
+┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
+│                 │         │                 │         │                 │
+│   USER ORDERS   │───────▶│  EXCHANGE CLOB  │────────▶│   ZK PROVER     │
+│                 │         │                 │         │                 │
+│  • Buy Orders   │         │  • Order Book   │         │  • SP1 ZKVM     │
+│  • Sell Orders  │         │  • Matching     │         │  • Verification │
+│  • REST API     │         │  • State DB     │         │  • Proof Gen    │
+│                 │         │                 │         │                 │
+└─────────────────┘         └─────────────────┘         └─────────────────┘
+         │                           │                           │
+         │                           │                           │
+         ▼                           ▼                           ▼
+┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
+│                 │         │                 │         │                 │
+│   VALIDATION    │         │  MATCHED TRACES │         │  CRYPTOGRAPHIC  │
+│                 │         │                 │         │                 │
+│  • Balance      │         │  • Trade Data   │         │  • ZK Proof     │
+│  • Mempool      │         │  • Blocks       │         │  • Verification │
+│  • Queue        │         │  • Persistence  │         │  • L1 Ready     │
+│                 │         │                 │         │                 │
+└─────────────────┘         └─────────────────┘         └─────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+
+                                DATA FLOW 
+
+    Orders ──▶ Matching ──▶ Traces ──▶ Blocks ──▶ ZK Proof ──▶ Settlement
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## Overview
 
 This project implements a next-generation order book exchange that leverages ZK proofs to enable trustless, verifiable trading on Layer 2. As CLOB-specific L2s are quietly rewriting what "onchain trading" means, this implementation showcases the future of decentralized exchange infrastructure.

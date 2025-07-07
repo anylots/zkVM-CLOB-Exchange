@@ -1,5 +1,11 @@
 [workspace]
-members = ["exchange", "prover/program", "prover/host", "prover/share"]
+members = [
+    "exchange",
+    "common",
+    "prover/program",
+    "prover/host",
+    "prover/share",
+]
 resolver = "2"
 
 [workspace.package]

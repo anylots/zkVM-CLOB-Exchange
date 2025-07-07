@@ -1,11 +1,12 @@
+use anyhow::Result;
 use std::time::Duration;
 use tokio::time::sleep;
-use anyhow::Result;
 
 // Use the crate's modules directly
+use common::order::Order;
+use common::traces::MatchedTrace;
+use exchange::MATCHED_TRACES;
 use exchange::block::block_builder::BlockBuilder;
-use exchange::matched_traces::{MatchedTrace, MATCHED_TRACES};
-use exchange::order::Order;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -86,14 +87,16 @@ async fn main() -> Result<()> {
         // Get all blocks
         let all_blocks = block_builder.get_blocks_range(1, latest_block_num).await?;
         println!("Total blocks generated: {}", all_blocks.len());
-        
+
         for block in &all_blocks {
             println!(
                 "Block #{}: {} transactions, state_root: {:?}",
                 block.block_num,
                 block.txns.len(),
-                block.state_root.map(|root| format!("{:02x}{:02x}...{:02x}{:02x}", 
-                    root[0], root[1], root[30], root[31]))
+                block.state_root.map(|root| format!(
+                    "{:02x}{:02x}...{:02x}{:02x}",
+                    root[0], root[1], root[30], root[31]
+                ))
             );
         }
     }

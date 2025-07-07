@@ -4,8 +4,10 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
-use crate::block::block::Block;
-use crate::matched_traces::{MATCHED_TRACES, MatchedTrace};
+use crate::MATCHED_TRACES;
+use crate::STATE;
+use common::block::Block;
+use common::traces::MatchedTrace;
 
 static MAX_TXN_SIZE: u64 = 100;
 static BLOCK_TIME_INTERVAL: Duration = Duration::from_millis(200);
@@ -90,14 +92,44 @@ impl BlockBuilder {
         let mut block_num_lock = self.current_block_num.write().await;
         *block_num_lock += 1;
         let block_num = *block_num_lock;
+        let mut state_db = STATE.write().await;
 
-        // Calculate state root (simplified - you may want to implement proper state root calculation)
-        let state_root = self.calculate_state_root(&txns);
+        for trace in &txns {
+            let tokens: Vec<&str> = trace.buy_order.pair_id.split('_').collect();
+            let base_token = tokens[0];
+            let quote_token = tokens[1];
+            state_db.state.add_user_balance(
+                trace.buy_order.user_id.clone(),
+                base_token.to_owned(),
+                trace.matched_amount,
+            );
+            state_db.state.sub_user_balance(
+                trace.sell_order.user_id.clone(),
+                base_token.to_owned(),
+                trace.matched_amount,
+            );
+
+            state_db.state.sub_user_balance(
+                trace.buy_order.user_id.clone(),
+                quote_token.to_owned(),
+                trace.matched_amount,
+            );
+            state_db.state.add_user_balance(
+                trace.sell_order.user_id.clone(),
+                quote_token.to_owned(),
+                trace.matched_amount,
+            );
+        }
+        // Calculate state root
+        let state_root = state_db.state.gen_state_root();
+        // Calculate txns root
+        let txns_root = self.calculate_txns_root(&txns);
 
         Ok(Block {
             block_num,
             txns,
-            state_root: Some(state_root),
+            txns_root: Some(txns_root),
+            state_root: state_root,
         })
     }
 
@@ -121,8 +153,8 @@ impl BlockBuilder {
         Ok(())
     }
 
-    /// Calculate state root for the block (simplified implementation)
-    fn calculate_state_root(&self, txns: &[MatchedTrace]) -> [u8; 32] {
+    /// Calculate txns root for the block (simplified implementation)
+    fn calculate_txns_root(&self, txns: &[MatchedTrace]) -> [u8; 32] {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 

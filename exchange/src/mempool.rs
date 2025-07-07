@@ -1,8 +1,8 @@
 use tokio::sync::RwLock;
 
+use crate::STATE;
 use crate::matching::{OrderBook, Trade};
-use crate::order::Order;
-use crate::state::STATE;
+use common::order::Order;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -29,8 +29,8 @@ impl Mempool {
             if order.side { "buy" } else { "sell" }
         );
 
-        // Parse pair_id to get base and quote tokens (e.g., "ETH/USDT")
-        let tokens: Vec<&str> = order.pair_id.split('/').collect();
+        // Parse pair_id to get base and quote tokens (e.g., "ETH_USDT")
+        let tokens: Vec<&str> = order.pair_id.split('_').collect();
         if tokens.len() != 2 {
             log::error!(
                 "Invalid pair format for order {}: {}",
@@ -42,12 +42,12 @@ impl Mempool {
 
         let base_token = tokens[0];
         let quote_token = tokens[1];
-        let state = STATE.read().await;
+        let state_db = STATE.read().await;
 
         // Check if user has sufficient balance
         if order.side {
             // Buy order: need quote token balance
-            let user_balance = state.get_user_balance(&order.user_id, &quote_token);
+            let user_balance = state_db.state.get_user_balance(&order.user_id, &quote_token);
             let required_balance = order.amount * order.price;
             if user_balance < required_balance {
                 log::warn!(
@@ -60,7 +60,7 @@ impl Mempool {
             }
         } else {
             // Sell order: need base token balance
-            let user_balance = state.get_user_balance(&order.user_id, &base_token);
+            let user_balance = state_db.state.get_user_balance(&order.user_id, &base_token);
             if user_balance < order.amount {
                 log::warn!(
                     "Insufficient base token balance for order {}: required={}, available={}",

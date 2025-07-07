@@ -1,9 +1,10 @@
+use crate::STATE;
+use crate::matching::Trade;
 use crate::mempool::MEMPOOL;
-use crate::order::Order;
-use crate::{matching::Trade, state::STATE};
 use axum::{
     Router, extract::Json, http::StatusCode, response::Json as ResponseJson, routing::post,
 };
+use common::order::Order;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
@@ -135,9 +136,9 @@ async fn handle_deposit(
         request.amount
     );
 
-    let mut state = STATE.write().await;
+    let mut state_db = STATE.write().await;
 
-    state.add_user_balance(
+    state_db.state.add_user_balance(
         request.user_id.clone(),
         request.token.clone(),
         request.amount,
@@ -155,9 +156,9 @@ async fn handle_withdraw(
         request.amount
     );
 
-    let mut state = STATE.write().await;
+    let mut state_db = STATE.write().await;
 
-    state.sub_user_balance(
+    state_db.state.sub_user_balance(
         request.user_id.clone(),
         request.token.clone(),
         request.amount,
@@ -245,8 +246,10 @@ async fn handle_cancel_order(
 async fn handle_get_balance(
     Json(request): Json<GetBalanceRequest>,
 ) -> Result<ResponseJson<ApiResponse<BalanceResponse>>, StatusCode> {
-    let state = STATE.read().await;
-    let balance = state.get_user_balance(&request.user_id, &request.token);
+    let state_db = STATE.read().await;
+    let balance = state_db
+        .state
+        .get_user_balance(&request.user_id, &request.token);
     let response = BalanceResponse { balance };
 
     Ok(ResponseJson(ApiResponse::success(response)))

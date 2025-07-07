@@ -1146,6 +1146,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "sled",
+ "tiny-keccak",
+]
+
+[[package]]
 name = "console"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1729,6 +1740,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "common",
  "env_logger",
  "futures",
  "lazy_static",
@@ -3647,9 +3659,12 @@ name = "program"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "common",
  "serde",
  "serde_json",
+ "share",
  "sp1-zkvm",
+ "tiny-keccak",
 ]
 
 [[package]]
@@ -4570,8 +4585,10 @@ name = "share"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "common",
  "serde",
  "serde_json",
+ "sled",
 ]
 
 [[package]]

@@ -7,3 +7,5 @@ edition.workspace = true
 anyhow.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
+sled.workspace = true
+common = { path = "../../common" }

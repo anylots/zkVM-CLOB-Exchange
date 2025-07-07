@@ -8,7 +8,7 @@ async fn main() {
     log::info!("Starting ZKVM Order Book Exchange...");
 
     // Start BlockBuilder
-    let block_builder = BlockBuilder::new("db").unwrap();
+    let block_builder = BlockBuilder::new("block_db").unwrap();
     tokio::spawn(async move { block_builder.start_block_generation().await });
 
     // Start server
