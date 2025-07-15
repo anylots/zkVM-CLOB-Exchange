@@ -29,25 +29,15 @@ impl Mempool {
             if order.side { "buy" } else { "sell" }
         );
 
-        // Parse pair_id to get base and quote tokens (e.g., "ETH_USDT")
-        let tokens: Vec<&str> = order.pair_id.split('_').collect();
-        if tokens.len() != 2 {
-            log::error!(
-                "Invalid pair format for order {}: {}",
-                order.id,
-                order.pair_id
-            );
-            return Err("Invalid pair format. Use BASE/QUOTE format".to_string());
-        }
-
-        let base_token = tokens[0];
-        let quote_token = tokens[1];
         let mut state_db = STATE.write().await;
 
         let user_id = order.user_id.clone();
+        let base_token = order.token_a.clone();
+        let quote_token = &order.token_b.clone();
+
         // Check if user has sufficient balance
         if order.side {
-            let user_balance = state_db.state.get_user_balance(&user_id, &quote_token);
+            let user_balance = state_db.state.get_user_balance(&user_id, quote_token);
             let frozen_balance = state_db.state.get_frozen(user_id.clone(), quote_token);
             // Overflow checking
             let order_cost = order
@@ -106,9 +96,27 @@ impl Mempool {
         Ok(order.id)
     }
 
-    pub fn cancel_order(&mut self, pair_id: &str, order_id: &str) -> Result<Order, String> {
+    pub async fn cancel_order(&mut self, pair_id: &str, order_id: &str) -> Result<Order, String> {
         if let Some(order_book) = self.order_books.get_mut(pair_id) {
             if let Some(cancelled_order) = order_book.cancel_order(order_id) {
+                let user_id = cancelled_order.user_id.clone();
+                let base_token = cancelled_order.token_a.clone();
+                let quote_token = cancelled_order.token_b.clone();
+
+                let mut state_db = STATE.write().await;
+                if cancelled_order.side {
+                    state_db.state.unfreeze(
+                        user_id,
+                        quote_token,
+                        cancelled_order.remaining_amount(),
+                    );
+                } else {
+                    state_db.state.unfreeze(
+                        user_id,
+                        base_token,
+                        cancelled_order.remaining_amount(),
+                    );
+                }
                 Ok(cancelled_order)
             } else {
                 Err("Order not found".to_string())

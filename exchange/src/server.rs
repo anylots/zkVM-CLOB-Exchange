@@ -222,7 +222,10 @@ async fn handle_cancel_order(
     );
 
     let mut mempool = MEMPOOL.write().await;
-    match mempool.cancel_order(&request.pair_id, &request.order_id) {
+    match mempool
+        .cancel_order(&request.pair_id, &request.order_id)
+        .await
+    {
         Ok(cancelled_order) => {
             log::info!(
                 "Order cancelled successfully: pair_id={}, order_id={}",
