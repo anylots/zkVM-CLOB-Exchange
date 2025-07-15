@@ -84,6 +84,13 @@ impl OrderBook {
         }
     }
 
+    fn is_order_cancelled(&self, order_id: &str) -> bool {
+        self.order_map
+            .get(order_id)
+            .map(|order| matches!(order.status, OrderStatus::Cancelled))
+            .unwrap_or(true)
+    }
+
     pub async fn add_order(&mut self, mut order: Order) {
         let order_id = order.id.clone();
         let order_side = order.side;
@@ -129,6 +136,11 @@ impl OrderBook {
         let mut traces = MATCHED_TRACES.write().await;
 
         while let Some(SellOrder(mut sell_order)) = self.sell_orders.pop() {
+            // Skip cancelled orders
+            if self.is_order_cancelled(&sell_order.id) {
+                continue;
+            }
+
             if sell_order.price > buy_order.price {
                 // No match possible, put back and break
                 self.sell_orders.push(SellOrder(sell_order));
@@ -137,7 +149,7 @@ impl OrderBook {
 
             let trade_quantity =
                 std::cmp::min(buy_order.remaining_amount(), sell_order.remaining_amount());
-            let trade_price = sell_order.price; // Price-time priority: use maker's price
+            let _trade_price = sell_order.price; // Price-time priority: use maker's price
 
             // MatchedTrace
             traces.push(MatchedTrace {
@@ -175,6 +187,11 @@ impl OrderBook {
         let mut traces = MATCHED_TRACES.write().await;
 
         while let Some(BuyOrder(mut buy_order)) = self.buy_orders.pop() {
+            // Skip and drop cancelled orders
+            if self.is_order_cancelled(&buy_order.id) {
+                continue;
+            }
+
             if buy_order.price < sell_order.price {
                 // No match possible, put back and break
                 self.buy_orders.push(BuyOrder(buy_order));
@@ -217,35 +234,36 @@ impl OrderBook {
     pub fn cancel_order(&mut self, order_id: &str) -> Option<Order> {
         log::info!("Attempting to cancel order: {}", order_id);
 
-        if let Some(mut order) = self.order_map.remove(order_id) {
+        // Check if order exists and get its side
+        let (order_side, already_cancelled) = if let Some(order) = self.order_map.get(order_id) {
+            (order.side, matches!(order.status, OrderStatus::Cancelled))
+        } else {
+            log::warn!("Order {} not found for cancellation", order_id);
+            return None;
+        };
+
+        // Check if already cancelled
+        if already_cancelled {
+            log::warn!("Order {} is already cancelled", order_id);
+            return self.order_map.get(order_id).cloned();
+        }
+
+        if let Some(order) = self.order_map.get_mut(order_id) {
             log::info!(
                 "Order {} found, cancelling. Side: {}, remaining: {}",
                 order_id,
-                if order.side { "buy" } else { "sell" },
+                if order_side { "buy" } else { "sell" },
                 order.remaining_amount()
             );
 
+            // This order will be skipped (pop) when matching (lazy removal).
             order.set_status(OrderStatus::Cancelled);
-
-            // Remove from heaps (this is inefficient but simple for a minimal implementation)
-            if order.side {
-                self.buy_orders = self
-                    .buy_orders
-                    .drain()
-                    .filter(|BuyOrder(o)| o.id != order_id)
-                    .collect();
-            } else {
-                self.sell_orders = self
-                    .sell_orders
-                    .drain()
-                    .filter(|SellOrder(o)| o.id != order_id)
-                    .collect();
-            }
+            let cancelled_order = order.clone();
 
             log::info!("Order {} successfully cancelled", order_id);
-            Some(order)
+            Some(cancelled_order)
         } else {
-            log::warn!("Order {} not found for cancellation", order_id);
+            log::warn!("Order {} disappeared during cancellation", order_id);
             None
         }
     }
@@ -255,10 +273,20 @@ impl OrderBook {
     }
 
     pub fn get_best_bid(&self) -> Option<u64> {
-        self.buy_orders.peek().map(|BuyOrder(order)| order.price)
+        for buy_order in &self.buy_orders {
+            if !self.is_order_cancelled(&buy_order.0.id) {
+                return Some(buy_order.0.price);
+            }
+        }
+        None
     }
 
     pub fn get_best_ask(&self) -> Option<u64> {
-        self.sell_orders.peek().map(|SellOrder(order)| order.price)
+        for sell_order in &self.sell_orders {
+            if !self.is_order_cancelled(&sell_order.0.id) {
+                return Some(sell_order.0.price);
+            }
+        }
+        None
     }
 }

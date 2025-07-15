@@ -42,13 +42,22 @@ impl Mempool {
 
         let base_token = tokens[0];
         let quote_token = tokens[1];
-        let state_db = STATE.read().await;
+        let mut state_db = STATE.write().await;
 
+        let user_id = order.user_id.clone();
         // Check if user has sufficient balance
         if order.side {
-            // Buy order: need quote token balance
-            let user_balance = state_db.state.get_user_balance(&order.user_id, &quote_token);
-            let required_balance = order.amount * order.price;
+            let user_balance = state_db.state.get_user_balance(&user_id, &quote_token);
+            let frozen_balance = state_db.state.get_frozen(user_id.clone(), quote_token);
+            // Overflow checking
+            let order_cost = order
+                .amount
+                .checked_mul(order.price)
+                .ok_or("Arithmetic overflow: order amount * price too large")?;
+            let required_balance = order_cost
+                .checked_add(frozen_balance)
+                .ok_or("Arithmetic overflow: total required balance too large")?;
+
             if user_balance < required_balance {
                 log::warn!(
                     "Insufficient quote token balance for order {}: required={}, available={}",
@@ -58,9 +67,12 @@ impl Mempool {
                 );
                 return Err("Insufficient quote token balance".to_string());
             }
+            state_db
+                .state
+                .freeze(user_id, quote_token.to_owned(), required_balance);
         } else {
             // Sell order: need base token balance
-            let user_balance = state_db.state.get_user_balance(&order.user_id, &base_token);
+            let user_balance = state_db.state.get_user_balance(&user_id, &base_token);
             if user_balance < order.amount {
                 log::warn!(
                     "Insufficient base token balance for order {}: required={}, available={}",
@@ -70,6 +82,9 @@ impl Mempool {
                 );
                 return Err("Insufficient base token balance".to_string());
             }
+            state_db
+                .state
+                .freeze(user_id, base_token.to_owned(), order.amount);
         }
 
         // Get or create order book for this pair

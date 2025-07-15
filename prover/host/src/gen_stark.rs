@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use common::{block::Block, state::State, traces::MatchedTrace};
+use common::{block::Block, state::State};
 use share::ZkVMInput;
 use sp1_sdk::{HashableKey, ProverClient, SP1Stdin};
 use std::time::Instant;

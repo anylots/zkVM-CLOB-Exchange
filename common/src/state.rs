@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap};
+use std::collections::HashMap;
 use tiny_keccak::{Hasher, Sha3};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -25,6 +25,7 @@ impl Account {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct State {
     pub user_balances: HashMap<String, Account>,
+    pub user_frozens: HashMap<String, Account>,
     pub state_root: Option<[u8; 32]>,
 }
 
@@ -59,6 +60,7 @@ impl State {
     pub fn new() -> Self {
         State {
             user_balances: HashMap::new(),
+            user_frozens: HashMap::new(),
             state_root: None,
         }
     }
@@ -99,7 +101,34 @@ impl State {
         }
     }
 
-    pub fn gen_state_root(&mut self) -> Option<[u8; 32]> {
+    pub fn get_frozen(&mut self, user_id: String, token_id: &str) -> u64 {
+        self.user_frozens
+            .get(&user_id)
+            .and_then(|balances| Some(balances.get_balance(token_id)))
+            .unwrap_or(0)
+    }
+
+    pub fn freeze(&mut self, user_id: String, token_id: String, balance: u64) {
+        self.user_frozens
+            .entry(user_id)
+            .or_insert_with(|| Account::new())
+            .set_balance(token_id, balance);
+    }
+
+    pub fn unfreeze(&mut self, user_id: String, token_id: String, balance: u64) {
+        let frozen_balance = self.get_frozen(user_id.clone(), &token_id);
+        if frozen_balance < balance {
+            return;
+        }
+        self.user_frozens
+            .entry(user_id)
+            .or_insert_with(|| Account::new())
+            .set_balance(token_id, frozen_balance - balance);
+    }
+
+
+    //  State root of binary tree
+    pub fn calculate_state_root(&self) -> Option<[u8; 32]> {
         if self.user_balances.is_empty() {
             return None;
         }
@@ -139,10 +168,9 @@ impl State {
             nodes = next_level;
         }
 
-        // Store the tree and root hash
+        // Return the root hash
         if let Some(root) = nodes.into_iter().next() {
-            let state_root = root.hash;
-            Some(state_root)
+            Some(root.hash)
         } else {
             None
         }

@@ -18,12 +18,14 @@ pub fn load() -> State {
         if let Ok(user_balances) = serde_json::from_slice::<HashMap<String, Account>>(&data) {
             return State {
                 user_balances,
+                user_frozens: HashMap::new(),
                 state_root: None,
             };
         }
     }
     State {
         user_balances: HashMap::new(),
+        user_frozens: HashMap::new(),
         state_root: None,
     }
 }

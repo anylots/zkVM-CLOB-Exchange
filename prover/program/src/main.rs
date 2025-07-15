@@ -9,7 +9,6 @@ use tiny_keccak::{Hasher, Sha3};
 pub fn main() {
     // Read the input.
     let x = sp1_zkvm::io::read::<ZkVMInput>();
-    // let input = serde_json::from_str(&x).unwrap();
 
     let blocks = x.blocks;
     let mut state = x.state;
@@ -17,7 +16,7 @@ pub fn main() {
     let post_state_root = blocks.last().unwrap().state_root.unwrap_or_default();
 
     // state
-    let lastest_state_root = state.gen_state_root().unwrap_or_default();
+    let lastest_state_root = state.calculate_state_root().unwrap_or_default();
 
     assert!(
         prev_state_root == lastest_state_root,
@@ -54,7 +53,7 @@ pub fn main() {
             );
         }
         // Calculate current block state root
-        let block_post_state_root = state.gen_state_root().unwrap_or_default();
+        let block_post_state_root = state.calculate_state_root().unwrap_or_default();
         assert!(
             block_post_state_root == block.state_root.unwrap_or_default(),
             "block_post_state_root == block.state_root"
@@ -81,27 +80,17 @@ pub fn main() {
 
 /// Calculate txns root for the block
 fn calculate_txns_root(txns: &[MatchedTrace]) -> [u8; 32] {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
+    let mut sha3 = Sha3::v256();
+    let mut output = [0u8; 32];
 
     // Hash all transactions in the block
     for txn in txns {
         if let Ok(txn_data) = serde_json::to_vec(txn) {
-            txn_data.hash(&mut hasher);
+            sha3.update(&txn_data);
         }
     }
 
-    let hash_result = hasher.finish();
-    let mut output = [0u8; 32];
-
-    // Convert u64 hash to [u8; 32] by repeating the pattern
-    let hash_bytes = hash_result.to_be_bytes();
-    for i in 0..32 {
-        output[i] = hash_bytes[i % 8];
-    }
-
+    sha3.finalize(&mut output);
     output
 }
 

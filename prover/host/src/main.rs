@@ -8,6 +8,6 @@ fn main() {
     let state = state_db.state;
     let blocks = load_blocks(101, 10).unwrap();
 
-    gen_stark::prove(state, blocks);
+    let _ = gen_stark::prove(state, blocks);
     println!("Hello, world!");
 }

@@ -5,7 +5,7 @@ pub mod server;
 
 use std::sync::Arc;
 
-use common::{state::{State, StateDB}, traces::MatchedTrace};
+use common::{state::StateDB, traces::MatchedTrace};
 use tokio::sync::RwLock;
 
 // Global traces instance

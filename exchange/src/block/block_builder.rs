@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tiny_keccak::{Hasher, Sha3};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
@@ -68,6 +69,7 @@ impl BlockBuilder {
 
             if should_generate_block {
                 // Generate and save block
+                // NOTE: Delayed block creation(async), using memory pool consensus?
                 let block = self.create_block(pending_traces.clone()).await?;
                 self.save_block(&block).await?;
 
@@ -92,37 +94,59 @@ impl BlockBuilder {
         let mut block_num_lock = self.current_block_num.write().await;
         *block_num_lock += 1;
         let block_num = *block_num_lock;
-        let mut state_db = STATE.write().await;
+        drop(block_num_lock);
 
-        for trace in &txns {
-            let tokens: Vec<&str> = trace.buy_order.pair_id.split('_').collect();
-            let base_token = tokens[0];
-            let quote_token = tokens[1];
-            state_db.state.add_user_balance(
-                trace.buy_order.user_id.clone(),
-                base_token.to_owned(),
-                trace.matched_amount,
-            );
-            state_db.state.sub_user_balance(
-                trace.sell_order.user_id.clone(),
-                base_token.to_owned(),
-                trace.matched_amount,
-            );
+        {
+            let mut state_db = STATE.write().await;
+            for trace in &txns {
+                let tokens: Vec<&str> = trace.buy_order.pair_id.split('_').collect();
+                let base_token = tokens[0];
+                let quote_token = tokens[1];
 
-            state_db.state.sub_user_balance(
-                trace.buy_order.user_id.clone(),
-                quote_token.to_owned(),
-                trace.matched_amount,
-            );
-            state_db.state.add_user_balance(
-                trace.sell_order.user_id.clone(),
-                quote_token.to_owned(),
-                trace.matched_amount,
-            );
+                state_db.state.add_user_balance(
+                    trace.buy_order.user_id.clone(),
+                    base_token.to_owned(),
+                    trace.matched_amount,
+                );
+                state_db.state.sub_user_balance(
+                    trace.sell_order.user_id.clone(),
+                    base_token.to_owned(),
+                    trace.matched_amount,
+                );
+
+                state_db.state.sub_user_balance(
+                    trace.buy_order.user_id.clone(),
+                    quote_token.to_owned(),
+                    trace.matched_amount,
+                );
+                state_db.state.add_user_balance(
+                    trace.sell_order.user_id.clone(),
+                    quote_token.to_owned(),
+                    trace.matched_amount,
+                );
+
+                // unfreeze
+                state_db.state.unfreeze(
+                    trace.buy_order.user_id.clone(),
+                    quote_token.to_owned(),
+                    trace.matched_amount,
+                );
+                state_db.state.unfreeze(
+                    trace.sell_order.user_id.clone(),
+                    base_token.to_owned(),
+                    trace.matched_amount,
+                );
+            }
         }
-        // Calculate state root
-        let state_root = state_db.state.gen_state_root();
-        // Calculate txns root
+
+        // Calc state root using read lock.
+        let state_root = {
+            let state_db = STATE.read().await;
+            state_db.state.calculate_state_root()
+        };
+
+        // Calc txns root
+        // NOTE: Refer to SUI or ETH/EIP-7862 to implement delayed state root calculation
         let txns_root = self.calculate_txns_root(&txns);
 
         Ok(Block {
@@ -155,27 +179,17 @@ impl BlockBuilder {
 
     /// Calculate txns root for the block (simplified implementation)
     fn calculate_txns_root(&self, txns: &[MatchedTrace]) -> [u8; 32] {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
+        let mut sha3 = Sha3::v256();
+        let mut output = [0u8; 32];
 
         // Hash all transactions in the block
         for txn in txns {
             if let Ok(txn_data) = serde_json::to_vec(txn) {
-                txn_data.hash(&mut hasher);
+                sha3.update(&txn_data);
             }
         }
 
-        let hash_result = hasher.finish();
-        let mut output = [0u8; 32];
-
-        // Convert u64 hash to [u8; 32] by repeating the pattern
-        let hash_bytes = hash_result.to_be_bytes();
-        for i in 0..32 {
-            output[i] = hash_bytes[i % 8];
-        }
-
+        sha3.finalize(&mut output);
         output
     }
 
