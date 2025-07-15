@@ -77,7 +77,7 @@ def test_orders():
     # User1 places a buy order (wants to buy ETH with USDT)
     response = requests.post(f"{BASE_URL}/order/place", json={
         "user_id": "user1",
-        "pair_id": "ETH/USDT",
+        "pair_id": "ETH_USDT",
         "amount": 500000,  # 0.5 ETH
         "price": 3000000000,  # 3000 USDT per ETH (in micro units)
         "side": True  # Buy order
@@ -88,7 +88,7 @@ def test_orders():
     # User2 places a sell order (wants to sell ETH for USDT)
     response = requests.post(f"{BASE_URL}/order/place", json={
         "user_id": "user2",
-        "pair_id": "ETH/USDT",
+        "pair_id": "ETH_USDT",
         "amount": 300000,  # 0.3 ETH
         "price": 2900000000,  # 2900 USDT per ETH (should match with buy order)
         "side": False  # Sell order
@@ -99,7 +99,7 @@ def test_orders():
     # Place another sell order that won't match
     response = requests.post(f"{BASE_URL}/order/place", json={
         "user_id": "user2",
-        "pair_id": "ETH/USDT",
+        "pair_id": "ETH_USDT",
         "amount": 200000,  # 0.2 ETH
         "price": 3100000000,  # 3100 USDT per ETH (higher than buy order)
         "side": False  # Sell order
@@ -114,9 +114,9 @@ def test_order_book():
     print("\n=== Testing Order Book ===")
     
     response = requests.post(f"{BASE_URL}/orderbook", json={
-        "pair_id": "ETH/USDT"
+        "pair_id": "ETH_USDT"
     })
-    print(f"ETH/USDT order book: {response.json()}")
+    print(f"ETH_USDT order book: {response.json()}")
 
 def test_trades():
     """Test trade history"""
@@ -132,7 +132,7 @@ def test_order_cancellation(order_data):
     if order_data and order_data.get('success') and order_data.get('data'):
         order_id = order_data['data']['order']['id']
         response = requests.post(f"{BASE_URL}/order/cancel", json={
-            "pair_id": "ETH/USDT",
+            "pair_id": "ETH_USDT",
             "order_id": order_id
         })
         print(f"Cancel order {order_id}: {response.json()}")

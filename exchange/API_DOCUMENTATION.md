@@ -112,7 +112,7 @@ curl -X POST http://[::1]:3030/withdraw \
 ```
 
 **Parameters**:
-- `pair_id`: Trading pair in format "BASE/QUOTE" (e.g., "ETH/USDT")
+- `pair_id`: Trading pair in format "BASE/QUOTE" (e.g., "ETH_USDT")
 - `amount`: Amount of base token to buy/sell
 - `price`: Price per unit of base token in quote token
 - `side`: `true` for buy order, `false` for sell order
@@ -276,11 +276,11 @@ curl -X POST http://[::1]:3030/withdraw \
    ```bash
    # User1 wants to buy 0.5 ETH at 3000 USDT per ETH
    curl -X POST http://[::1]:3030/order/place -H "Content-Type: application/json" \
-     -d '{"user_id": "user1", "pair_id": "ETH/USDT", "amount": 500000, "price": 3000000000, "side": true}'
+     -d '{"user_id": "user1", "pair_id": "ETH_USDT", "amount": 500000, "price": 3000000000, "side": true}'
    
    # User2 wants to sell 0.3 ETH at 2900 USDT per ETH (will match!)
    curl -X POST http://[::1]:3030/order/place -H "Content-Type: application/json" \
-     -d '{"user_id": "user2", "pair_id": "ETH/USDT", "amount": 300000, "price": 2900000000, "side": false}'
+     -d '{"user_id": "user2", "pair_id": "ETH_USDT", "amount": 300000, "price": 2900000000, "side": false}'
    ```
 
 3. **Check Results**: View trades and order book
@@ -290,7 +290,7 @@ curl -X POST http://[::1]:3030/withdraw \
    
    # Check current order book
    curl -X POST http://[::1]:3030/orderbook -H "Content-Type: application/json" \
-     -d '{"pair_id": "ETH/USDT"}'
+     -d '{"pair_id": "ETH_USDT"}'
    ```
 
 ## Running the Server

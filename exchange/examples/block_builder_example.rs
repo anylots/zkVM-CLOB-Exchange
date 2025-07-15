@@ -14,7 +14,7 @@ async fn main() -> Result<()> {
     env_logger::init();
 
     // Create a block builder with a local database
-    let block_builder = BlockBuilder::new("./blocks_db")?;
+    let block_builder = BlockBuilder::new("./block_db")?;
 
     // Start block generation in a background task
     let builder_clone = block_builder.clone();
@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
         let buy_order = Order::new(
             format!("buy_{}", i),
             format!("user_buy_{}", i % 10),
-            "BTC/USDT".to_string(),
+            "BTC_USDT".to_string(),
             100,
             1000 + i,
             true, // true for buy
@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
         let sell_order = Order::new(
             format!("sell_{}", i),
             format!("user_sell_{}", i % 10),
-            "BTC/USDT".to_string(),
+            "BTC_USDT".to_string(),
             100,
             1000 + i,
             false, // false for sell
