@@ -2,6 +2,7 @@ pub mod block;
 pub mod matching;
 pub mod mempool;
 pub mod server;
+pub mod slow_mempool;
 
 use std::sync::Arc;
 

@@ -17,6 +17,14 @@ serde.workspace = true
 serde_json.workspace = true
 sled.workspace = true
 tiny-keccak.workspace = true
+revm.workspace = true
+
+alloy-consensus = "0.14.0"
+alloy-eips = "0.14.0"
+alloy-primitives = "1.2.1"
+alloy-rpc-types-any = "0.14.0"
+alloy-rpc-types-eth = "0.14.0"
+hex = "0.4"
 common = { path = "../common" }
 
 [[example]]

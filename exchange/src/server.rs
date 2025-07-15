@@ -1,6 +1,7 @@
 use crate::STATE;
 use crate::matching::Trade;
 use crate::mempool::MEMPOOL;
+use crate::slow_mempool;
 use axum::{
     Router, extract::Json, http::StatusCode, response::Json as ResponseJson, routing::post,
 };
@@ -55,6 +56,11 @@ pub struct GetOrderBookRequest {
     pub pair_id: String,
 }
 
+#[derive(Deserialize)]
+pub struct SubmitEvmTxnRequest {
+    pub rlp_data: String, // Hex-encoded RLP transaction data
+}
+
 #[derive(Serialize)]
 pub struct ApiResponse<T> {
     pub success: bool,
@@ -76,6 +82,11 @@ pub struct BalanceResponse {
 pub struct OrderBookResponse {
     pub best_bid: Option<u64>,
     pub best_ask: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct SubmitEvmTxnResponse {
+    pub tx_hash: String,
 }
 
 impl<T> ApiResponse<T> {
@@ -124,6 +135,7 @@ fn create_router() -> Router {
         .route("/order/get", post(handle_get_order))
         .route("/orderbook", post(handle_get_orderbook))
         .route("/trades", post(handle_get_trades))
+        .route("/evm/submit", post(handle_submit_evm_txn))
 }
 
 async fn handle_deposit(
@@ -291,4 +303,31 @@ async fn handle_get_trades() -> Result<ResponseJson<ApiResponse<Vec<Trade>>>, St
     let mempool = MEMPOOL.read().await;
     let trades = mempool.get_trades().clone();
     Ok(ResponseJson(ApiResponse::success(trades)))
+}
+
+async fn handle_submit_evm_txn(
+    Json(request): Json<SubmitEvmTxnRequest>,
+) -> Result<ResponseJson<ApiResponse<SubmitEvmTxnResponse>>, StatusCode> {
+    log::info!(
+        "Received EVM transaction submission: rlp_data={}",
+        request.rlp_data
+    );
+
+    match slow_mempool::add_evm_txn_from_hex(&request.rlp_data).await {
+        Ok(tx_hash) => {
+            let tx_hash_hex = format!("0x{}", hex::encode(tx_hash));
+            log::info!(
+                "EVM transaction processed successfully: tx_hash = {}",
+                tx_hash_hex
+            );
+            let response = SubmitEvmTxnResponse {
+                tx_hash: tx_hash_hex,
+            };
+            Ok(ResponseJson(ApiResponse::success(response)))
+        }
+        Err(e) => {
+            log::error!("Failed to process EVM transaction: error={}", e);
+            Ok(ResponseJson(ApiResponse::error(e.to_string())))
+        }
+    }
 }

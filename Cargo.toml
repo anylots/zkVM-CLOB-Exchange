@@ -30,3 +30,6 @@ sled = "0.34.7"
 sp1-zkvm = "4.0.0"
 sp1-sdk = "4.0.0"
 tiny-keccak = { version = "2.0", features = ["sha3"] }
+
+# for evm txn
+revm = "27.0.3"
