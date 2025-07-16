@@ -1,7 +1,7 @@
-use crate::STATE;
-use crate::matching::Trade;
-use crate::mempool::MEMPOOL;
-use crate::slow_mempool;
+use crate::evm::handle_evm_request;
+use crate::exchange::STATE;
+use crate::exchange::matching::Trade;
+use crate::exchange::mempool::MEMPOOL;
 use axum::{
     Router, extract::Json, http::StatusCode, response::Json as ResponseJson, routing::post,
 };
@@ -108,24 +108,40 @@ impl<T> ApiResponse<T> {
 }
 
 pub async fn start() {
-    let app = create_router();
-
-    // Create CORS middleware
+    // Create exchange API router
+    let exchange_app = create_exchange_router();
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
+    let exchange_app = exchange_app.layer(cors);
 
-    let app = app.layer(cors);
+    // Create EVM API router
+    let evm_app = create_evm_router();
+    let evm_cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+    let evm_app = evm_app.layer(evm_cors);
 
-    let addr: SocketAddr = "[::1]:3030".parse().unwrap();
-    log::info!("Server running on http://{}", addr);
+    // Start exchange server on port 3030
+    let exchange_addr: SocketAddr = "[::1]:3030".parse().unwrap();
+    log::info!("Exchange server running on http://{}", exchange_addr);
+    let exchange_listener = tokio::net::TcpListener::bind(exchange_addr).await.unwrap();
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    // Start EVM server on port 8545
+    let evm_addr: SocketAddr = "[::1]:8545".parse().unwrap();
+    log::info!("EVM server running on http://{}", evm_addr);
+    let evm_listener = tokio::net::TcpListener::bind(evm_addr).await.unwrap();
+
+    // Run both servers concurrently
+    tokio::select! {
+        _ = axum::serve(exchange_listener, exchange_app) => {},
+        _ = axum::serve(evm_listener, evm_app) => {},
+    }
 }
 
-fn create_router() -> Router {
+fn create_exchange_router() -> Router {
     Router::new()
         .route("/deposit", post(handle_deposit))
         .route("/withdraw", post(handle_withdraw))
@@ -135,7 +151,10 @@ fn create_router() -> Router {
         .route("/order/get", post(handle_get_order))
         .route("/orderbook", post(handle_get_orderbook))
         .route("/trades", post(handle_get_trades))
-        .route("/evm/submit", post(handle_submit_evm_txn))
+}
+
+fn create_evm_router() -> Router {
+    Router::new().route("/", post(handle_evm_request))
 }
 
 async fn handle_deposit(
@@ -234,7 +253,10 @@ async fn handle_cancel_order(
     );
 
     let mut mempool = MEMPOOL.write().await;
-    match mempool.cancel_order(&request.pair_id, &request.order_id) {
+    match mempool
+        .cancel_order(&request.pair_id, &request.order_id)
+        .await
+    {
         Ok(cancelled_order) => {
             log::info!(
                 "Order cancelled successfully: pair_id={}, order_id={}",
@@ -303,31 +325,4 @@ async fn handle_get_trades() -> Result<ResponseJson<ApiResponse<Vec<Trade>>>, St
     let mempool = MEMPOOL.read().await;
     let trades = mempool.get_trades().clone();
     Ok(ResponseJson(ApiResponse::success(trades)))
-}
-
-async fn handle_submit_evm_txn(
-    Json(request): Json<SubmitEvmTxnRequest>,
-) -> Result<ResponseJson<ApiResponse<SubmitEvmTxnResponse>>, StatusCode> {
-    log::info!(
-        "Received EVM transaction submission: rlp_data={}",
-        request.rlp_data
-    );
-
-    match slow_mempool::add_evm_txn_from_hex(&request.rlp_data).await {
-        Ok(tx_hash) => {
-            let tx_hash_hex = format!("0x{}", hex::encode(tx_hash));
-            log::info!(
-                "EVM transaction processed successfully: tx_hash = {}",
-                tx_hash_hex
-            );
-            let response = SubmitEvmTxnResponse {
-                tx_hash: tx_hash_hex,
-            };
-            Ok(ResponseJson(ApiResponse::success(response)))
-        }
-        Err(e) => {
-            log::error!("Failed to process EVM transaction: error={}", e);
-            Ok(ResponseJson(ApiResponse::error(e.to_string())))
-        }
-    }
 }

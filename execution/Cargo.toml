@@ -1,7 +1,15 @@
 [package]
-name = "exchange"
+name = "execution"
 version.workspace = true
 edition.workspace = true
+
+[lib]
+name = "execution"
+path = "src/lib.rs"
+
+[[bin]]
+name = "execution"
+path = "src/main.rs"
 
 [dependencies]
 axum.workspace = true
@@ -19,12 +27,10 @@ sled.workspace = true
 tiny-keccak.workspace = true
 revm.workspace = true
 
-alloy-consensus = "0.14.0"
-alloy-eips = "0.14.0"
-alloy-primitives = "1.2.1"
-alloy-rpc-types-any = "0.14.0"
-alloy-rpc-types-eth = "0.14.0"
-hex = "0.4"
+alloy-consensus.workspace = true
+alloy-eips.workspace = true
+alloy-primitives.workspace = true
+hex.workspace = true
 common = { path = "../common" }
 
 [[example]]

@@ -5,8 +5,8 @@ use tokio::time::sleep;
 // Use the crate's modules directly
 use common::order::Order;
 use common::traces::MatchedTrace;
-use exchange::MATCHED_TRACES;
-use exchange::block::block_builder::BlockBuilder;
+use execution::exchange::MATCHED_TRACES;
+use execution::block::block_builder::BlockBuilder;
 
 #[tokio::main]
 async fn main() -> Result<()> {

@@ -2021,14 +2021,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "exchange"
+name = "execution"
 version = "0.1.0"
 dependencies = [
  "alloy-consensus",
  "alloy-eips 0.14.0",
  "alloy-primitives",
- "alloy-rpc-types-any",
- "alloy-rpc-types-eth",
  "anyhow",
  "axum",
  "common",

@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum OrderStatus {
@@ -14,6 +14,8 @@ pub struct Order {
     pub id: String,
     pub user_id: String,
     pub pair_id: String,
+    pub token_a: String,
+    pub token_b: String,
     pub amount: u64,
     pub filled_amount: u64,
     pub price: u64,
@@ -33,29 +35,37 @@ impl Eq for Order {}
 
 impl Order {
     // Create a new order with a given id, user_id, pair_id, amount, price, and side
-    // The status is pending by default, 
-    // then once the order is matched, the status is matched, 
+    // The status is pending by default,
+    // then once the order is matched, the status is matched,
     // then when block is settled on L1, then the status is settled
     pub fn new(
-        id: String, 
-        user_id: String, 
-        pair_id: String, 
-        amount: u64, 
-        price: u64, 
-        side: bool
+        id: String,
+        user_id: String,
+        pair_id: String,
+        amount: u64,
+        price: u64,
+        side: bool,
     ) -> Self {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
-        Self { 
-            id, user_id, pair_id, amount,
+
+        let (token_a, token_b) = get_pair_tokens(pair_id.clone());
+
+        Self {
+            id,
+            user_id,
+            pair_id,
+            token_a,
+            token_b,
+            amount,
             filled_amount: 0,
-            price, side,
-            status: OrderStatus::Pending, 
+            price,
+            side,
+            status: OrderStatus::Pending,
             created_at: now,
-            updated_at: now
+            updated_at: now,
         }
     }
 
@@ -83,4 +93,13 @@ impl Order {
             self.status = OrderStatus::PartiallyFilled;
         }
     }
+}
+
+fn get_pair_tokens(pair_id: String) -> (String, String) {
+    // Parse pair_id to get base and quote tokens (e.g., "ETH_USDT")
+    let tokens: Vec<&str> = pair_id.split('_').collect();
+
+    let base_token = tokens[0];
+    let quote_token = tokens[1];
+    (base_token.to_string(), quote_token.to_string())
 }

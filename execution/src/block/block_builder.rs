@@ -5,8 +5,8 @@ use tiny_keccak::{Hasher, Sha3};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
-use crate::MATCHED_TRACES;
-use crate::STATE;
+use crate::exchange::MATCHED_TRACES;
+use crate::exchange::STATE;
 use common::block::Block;
 use common::traces::MatchedTrace;
 

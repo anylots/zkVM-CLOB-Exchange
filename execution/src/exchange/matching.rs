@@ -1,4 +1,4 @@
-use crate::MATCHED_TRACES;
+use crate::exchange::MATCHED_TRACES;
 use common::order::{Order, OrderStatus};
 use common::traces::MatchedTrace;
 use std::cmp::Ordering;
