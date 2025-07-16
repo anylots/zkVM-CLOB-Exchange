@@ -5,6 +5,7 @@ members = [
     "prover/program",
     "prover/host",
     "prover/share",
+    "consensus",
 ]
 resolver = "2"
 

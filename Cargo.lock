@@ -1400,6 +1400,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "consensus"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "futures",
+ "lazy_static",
+ "log",
+ "rand 0.9.1",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "console"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
