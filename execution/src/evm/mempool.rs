@@ -2,11 +2,13 @@ use std::sync::Arc;
 
 use alloy_consensus::{Transaction, TxEnvelope, TypedTransaction};
 use alloy_eips::Decodable2718;
+use alloy_primitives::{Address, Bytes, U256};
 use revm::DatabaseCommit;
 use revm::context::ContextTr;
-use revm::database::{CacheDB, EmptyDB};
-use revm::{Context, ExecuteEvm, MainBuilder, MainContext, context::TxEnv};
+use revm::context::TxEnv;
 use tokio::sync::RwLock;
+
+use crate::evm::storage::EvmDatabase;
 
 pub struct Mempool {
     pub txns: Vec<TxEnv>,
@@ -32,8 +34,8 @@ fn parse_raw_transaction(raw_tx: &[u8]) -> Result<TxEnv, Box<dyn std::error::Err
         TypedTransaction::Legacy(tx) => Some(TxEnv {
             tx_type: 0,
             caller: tx.to.into_to().unwrap_or_default(),
-            gas_limit: tx.gas_limit,
-            gas_price: tx.gas_price,
+            gas_limit: tx.gas_limit.try_into().unwrap_or(21000u64),
+            gas_price: tx.gas_price.try_into().unwrap_or(0u128),
             kind: tx.kind(),
             value: tx.value,
             data: tx.input,
@@ -49,34 +51,6 @@ fn parse_raw_transaction(raw_tx: &[u8]) -> Result<TxEnv, Box<dyn std::error::Err
     };
 
     Ok(tx.unwrap())
-}
-
-/// Execute a transaction using revm
-pub fn execute_tx(tx: TxEnv) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    // Handler::run(&mut self, evm);
-    // Validate
-    if tx.gas_limit == 0 {
-        return Err("Invalid gas limit: cannot be zero".into());
-    }
-
-    if tx.gas_price == 0u128 {
-        return Err("Invalid gas price: cannot be zero".into());
-    }
-
-    let cache_db = CacheDB::<EmptyDB>::default();
-    let mut evm = Context::mainnet().with_db(cache_db).build_mainnet();
-    let out = evm.transact(tx)?;
-
-    let output_bytes = match out.result.output() {
-        Some(output) => output.to_vec(),
-        None => Vec::new(),
-    };
-
-    // Handle state finalization and commit properly
-    let state = evm.ctx.journal_mut().finalize();
-    evm.ctx.db_mut().commit(state);
-
-    Ok(output_bytes)
 }
 
 // Global evm mempool instance

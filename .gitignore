@@ -1,3 +1,4 @@
 /target
 block_db
 state_db
+evm_db
