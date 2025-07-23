@@ -32,7 +32,7 @@ revm.workspace = true
 alloy-consensus.workspace = true
 alloy-eips.workspace = true
 alloy-primitives.workspace = true
-alloy-trie.workspace = true
+alloy-trie = { workspace = true, features = ["ethereum"] }
 alloy-rlp.workspace = true
 hex.workspace = true
 common = { path = "../common" }

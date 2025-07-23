@@ -1,14 +1,19 @@
 use crate::evm::storage::EvmDatabase;
+use crate::evm::trie::calculate_trie_updates;
 use alloy_primitives::map::foldhash::{HashMap, HashMapExt};
 use alloy_primitives::{Address, B256, U256};
-use alloy_trie::nodes::TrieNode;
-use alloy_trie::{BranchNodeCompact, Nibbles};
+use alloy_rlp::{BufMut, Encodable};
+use alloy_trie::Nibbles;
+pub use alloy_trie::TrieAccount;
+use alloy_trie::nodes::{LeafNode, TrieNode};
 use revm::DatabaseCommit;
 use revm::context::ContextTr;
 use revm::database::{AccountState, CacheDB};
 use revm::state::AccountInfo;
 use revm::{Context, ExecuteEvm, MainBuilder, MainContext, context::TxEnv};
 use tiny_keccak::{Hasher, Sha3};
+
+pub const ACCOUNT_RLP_MAX_SIZE: usize = 110;
 
 // AccountInfo and Storage changed after execute_block.
 type PostState = (
@@ -57,10 +62,11 @@ impl<'a> EvmExecutor<'a> {
                 .db
                 .save_code(&Address::from_word(*address), code);
         }
-        // Save hashed state
+        // Save hashed state and mpt trie.
         let mut hashed_accounts = HashMap::with_capacity(account_cache.len());
         let mut hashed_storage = HashMap::with_capacity(account_cache.len());
-        let mut prefix_set: Vec<Nibbles> = vec![];
+
+        let mut nodes_to_update: HashMap<Nibbles, TrieNode> = HashMap::new();
 
         for (address, acc) in account_cache.iter() {
             let hashed_address = keccak_address(address);
@@ -73,49 +79,79 @@ impl<'a> EvmExecutor<'a> {
             hashed_accounts.insert(hashed_address, acc.info.clone());
             hashed_storage.insert(hashed_address, storage);
 
-            prefix_set.push(Nibbles::unpack(hashed_address));
+            let mut account_rlp = Vec::with_capacity(ACCOUNT_RLP_MAX_SIZE);
+            let trie_account = TrieAccount {
+                nonce: acc.info.nonce,
+                balance: acc.info.balance,
+                storage_root: B256::default(),
+                code_hash: acc.info.code_hash,
+            };
+            trie_account.encode(&mut account_rlp as &mut dyn BufMut);
+
+            nodes_to_update.insert(
+                Nibbles::unpack(hashed_address),
+                TrieNode::Leaf(LeafNode::new(Nibbles::unpack(hashed_address), account_rlp)),
+            );
         }
         self.post_state = Some((hashed_accounts, hashed_storage));
 
-        let account_nodes: HashMap<Nibbles, TrieNode> = HashMap::new();
+        let mut trie_updates: HashMap<Nibbles, TrieNode> = HashMap::new();
 
-        let state_root = B256::default();
-        let mut current_path = Nibbles::default();
+        for (address, _acc) in self.post_state.as_ref().unwrap().0.iter() {
+            let target_path = Nibbles::unpack(address);
+            let acc_trie_updates = self.fetch_trie_updates(target_path).unwrap_or_default();
+            trie_updates.extend(acc_trie_updates);
+        }
 
-        for (address, acc) in self.post_state.as_ref().unwrap().0.iter() {
-            let acc_bibbles = alloy_trie::nybbles::Nibbles::unpack(address);
-            // self.database.db.insert_account_trie_node(path, acc);
+        calculate_trie_updates(nodes_to_update, &mut trie_updates);
+
+        // Save Mpt node to DB.
+        for trie_node in trie_updates.iter() {
+            self.database
+                .db
+                .insert_account_trie_node(trie_node.0, trie_node.1);
         }
 
         Ok(())
     }
 
-    fn fetch_update_node(
-        &self,
-        current_path: &mut Nibbles,
-        target_path: Nibbles,
-    ) -> HashMap<Nibbles, TrieNode> {
+    fn fetch_trie_updates(&self, target_path: Nibbles) -> Option<HashMap<Nibbles, TrieNode>> {
+        let mut current_path = Nibbles::default();
         let mut account_nodes = HashMap::new();
-
-        let node = self
-            .database
-            .db
-            .get_account_trie_node(&current_path)
-            .unwrap();
-
-        account_nodes.insert(current_path.clone(), node.clone());
-        match node {
-            TrieNode::Branch(br) => {
-                let next_nibble = target_path.get(current_path.len()).unwrap();
-                if br.state_mask.is_bit_set(next_nibble) {
-                    current_path.extend_from_slice(&vec![next_nibble]);
+        loop {
+            match self.database.db.get_account_trie_node(&current_path) {
+                Some(TrieNode::Branch(node)) => {
+                    account_nodes.insert(current_path.clone(), TrieNode::Branch(node.clone()));
+                    let next_nibble = target_path.get(current_path.len()).unwrap();
+                    if node.state_mask.is_bit_set(next_nibble) {
+                        current_path.extend_from_slice(&vec![next_nibble]);
+                    } else {
+                        return None;
+                    }
+                }
+                Some(TrieNode::EmptyRoot) => {
+                    break;
+                }
+                Some(TrieNode::Extension(node)) => {
+                    account_nodes.insert(current_path.clone(), TrieNode::Extension(node.clone()));
+                    current_path.extend(&node.key);
+                    if !target_path.to_vec().starts_with(&current_path.to_vec()) {
+                        return None;
+                    }
+                }
+                Some(TrieNode::Leaf(leaf_node)) => {
+                    if target_path == current_path {
+                        account_nodes
+                            .insert(current_path.clone(), TrieNode::Leaf(leaf_node.clone()));
+                        break;
+                    }
+                }
+                None => {
+                    break;
                 }
             }
-            TrieNode::EmptyRoot => {}
-            TrieNode::Extension(extension_node) => {}
-            TrieNode::Leaf(leaf_node) => {}
         }
-        account_nodes
+        Some(account_nodes)
     }
 
     /// Execute a transaction using revm
@@ -165,6 +201,8 @@ fn keccak_slot(slot: &U256) -> B256 {
     sha3.finalize(&mut output);
     B256::from(output)
 }
+
+
 
 #[cfg(test)]
 mod test {

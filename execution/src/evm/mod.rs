@@ -1,7 +1,8 @@
+pub mod block_builder;
+pub mod executor;
 pub mod mempool;
 pub mod storage;
-pub mod executor;
-pub mod block_builder;
+pub mod trie;
 
 use axum::{extract::Json, http::StatusCode, response::Json as ResponseJson};
 use serde::{Deserialize, Serialize};
